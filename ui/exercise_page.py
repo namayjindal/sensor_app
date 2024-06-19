@@ -3,6 +3,18 @@ from sensor.sensor_manager import SensorManager
 from utils.data_manager import DataManager
 import asyncio
 from utils.constants import TARGET_SENSOR_NAMES, UART_RX_CHAR_UUID_1, UART_RX_CHAR_UUID_2, UART_RX_CHAR_UUID_3, UART_RX_CHAR_UUID_4
+from PyQt5.QtCore import QThread, pyqtSignal, QObject
+
+class AsyncWorker(QObject):
+    finished = pyqtSignal()
+
+    def __init__(self, coroutine):
+        super().__init__()
+        self.coroutine = coroutine
+
+    def run(self):
+        asyncio.run(self.coroutine())
+        self.finished.emit()
 
 class ExercisePage(QWidget):
     def __init__(self, parent):
@@ -51,25 +63,32 @@ class ExercisePage(QWidget):
         self.school_name = school_name
         self.date = date
 
-    async def connect_sensors(self):
-        await self.sensor_manager.scan_devices()
-        self.sensor_manager.filter_devices(TARGET_SENSOR_NAMES)
+    def connect_sensors(self):
+        async def async_connect():
+            await self.sensor_manager.scan_devices()
+            self.sensor_manager.filter_devices(TARGET_SENSOR_NAMES)
 
-        tasks = []
-        for device in self.sensor_manager.devices:
-            if device.name == "Sense Right Hand":
-                tasks.append(self.sensor_manager.connect_to_sensor(device, 1, UART_RX_CHAR_UUID_1))
-            elif device.name == "Sense Left Hand":
-                tasks.append(self.sensor_manager.connect_to_sensor(device, 2, UART_RX_CHAR_UUID_2))
-            elif device.name == "Sense Right Leg":
-                tasks.append(self.sensor_manager.connect_to_sensor(device, 3, UART_RX_CHAR_UUID_3))
-            elif device.name == "Sense Left Leg":
-                tasks.append(self.sensor_manager.connect_to_sensor(device, 4, UART_RX_CHAR_UUID_4))
+            tasks = []
+            for device in self.sensor_manager.devices:
+                if device.name == "Sense Right Hand":
+                    tasks.append(self.sensor_manager.connect_to_sensor(device, 1, UART_RX_CHAR_UUID_1))
+                elif device.name == "Sense Left Hand":
+                    tasks.append(self.sensor_manager.connect_to_sensor(device, 2, UART_RX_CHAR_UUID_2))
+                elif device.name == "Sense Right Leg":
+                    tasks.append(self.sensor_manager.connect_to_sensor(device, 3, UART_RX_CHAR_UUID_3))
+                elif device.name == "Sense Left Leg":
+                    tasks.append(self.sensor_manager.connect_to_sensor(device, 4, UART_RX_CHAR_UUID_4))
 
-        await asyncio.gather(*tasks)
+            await asyncio.gather(*tasks)
 
-         #asyncio.run(asyncio.gather(*tasks))
-
+        self.thread = QThread()
+        self.worker = AsyncWorker(async_connect)
+        self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.thread.start()
         self.start_button.setEnabled(True)
 
     def start_exercise(self):
